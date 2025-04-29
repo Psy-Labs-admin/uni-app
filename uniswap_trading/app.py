@@ -7,6 +7,7 @@ import plotly.express as px
 from uniswap_trading.price_simulation import simulate_prices
 from uniswap_trading.simulation import run_simulation
 from uniswap_trading.strategy import UniswapV4Strategy
+from produce_fees import produce_fees
 
 # --- Plotting Functions with Hover and Unified Mode ---
 
