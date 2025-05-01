@@ -2,7 +2,7 @@ from graph import fetch_uniswap_v3_pools_by_tokens, fetch_uniswap_v3_pool_volume
 from binance import add_prices_from_csv
 from fees import add_daily_fees_usd_dynamic
 from plots import generate_fee_visualizations
-from uniswap import fetch_token_addresses
+# from uniswap import fetch_token_addresses
 import numpy as np
 
 def produce_fees(
@@ -34,3 +34,7 @@ def produce_fees(
         symbols,
         pools_df[pools_df.index == 0].feeTier[0])
     return generate_fee_visualizations(vol_with_usd_with_fee)
+
+if __name__ == '__main__':
+    fig_daily, fig_cum, fig_heatmap = produce_fees(["WETH", "WBTC"], "2024-07-01", "2025-04-01")
+    fig_daily.show()
