@@ -46,19 +46,23 @@ def add_prices_flexible(
     tokens: list[str],
     quote_asset: str = 'USDT'
 ) -> pd.DataFrame:
-    """
-    Adds price columns for arbitrary tokens. Attempts Binance first; on failure falls back to CoinCap.
-    :param vol_df: DataFrame with 'date' column
-    :param tokens: list of token symbols, e.g. ['WETH','WBTC','UNI']
-    :param quote_asset: quote currency for Binance (default USDT)
-    """
+    # 1) copy and flatten any MultiIndex on rows or columns
     df = vol_df.copy()
+    if isinstance(df.index, pd.MultiIndex):
+        df = df.reset_index()
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = ['_'.join(map(str, col)).strip() for col in df.columns.values]
+
+    # 2) make sure we have a proper date column
     df['date'] = pd.to_datetime(df['date']).dt.date
     start_date, end_date = df['date'].min(), df['date'].max()
 
-    # Merge prices for all tokens
+    # 3) merge in each token’s price series
     result = df
     for token in tokens:
         price_df = fetch_yfinance_price_range(token, start_date, end_date)
+        # price_df is already a simple 2-column, RangeIndex DF
         result = result.merge(price_df, on='date', how='left')
+
     return result
+
