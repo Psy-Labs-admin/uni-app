@@ -111,63 +111,62 @@ def normalize_yf_df(df: pd.DataFrame, asset_id: str) -> pd.DataFrame:
     """
     Take a raw yfinance DataFrame (single- or multi-ticker) and return one with:
       - a tz-naive 'datetime' column
-      - an '{asset_id}_price' column for the Close price
+      - an '{asset_id}_price' column (empty if no data)
     """
     # 1) Flatten MultiIndex columns, if present
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = ['_'.join(map(str, col)).strip() for col in df.columns.values]
 
-    # 2) If neither 'Date' nor 'Datetime' present, reset_index → first col becomes 'datetime'
+    # 2) Reset index → 'datetime' if no Date/Datetime column exists
     if 'Date' not in df.columns and 'Datetime' not in df.columns:
         df = df.reset_index()
-        original_idx_col = df.columns[0]
-        df = df.rename(columns={original_idx_col: 'datetime'})
+        idx_col = df.columns[0]
+        df = df.rename(columns={idx_col: 'datetime'})
     else:
-        # map 'Date' or 'Datetime' → 'datetime'
+        # rename whichever is present
         rename_map = {}
-        if 'Date'     in df.columns: rename_map['Date']     = 'datetime'
+        if 'Date' in df.columns:     rename_map['Date']     = 'datetime'
         if 'Datetime' in df.columns: rename_map['Datetime'] = 'datetime'
         df = df.rename(columns=rename_map)
 
-    # 3) Find any column ending with '_Close'; else use 'Close'
-    close_cols = [col for col in df.columns if col.endswith('_Close')]
-    if close_cols:
-        close_col = close_cols[0]
-    elif 'Close' in df.columns:
-        close_col = 'Close'
+    # 3) Find any 'close' column (case‐insensitive), else create an empty price column
+    close_candidates = [c for c in df.columns if 'close' in c.lower()]
+    if close_candidates:
+        df = df.rename(columns={close_candidates[0]: f'{asset_id}_price'})
     else:
-        raise KeyError("No Close column found in DataFrame")
-    df = df.rename(columns={close_col: f'{asset_id}_price'})
+        # no data → make an empty price series
+        df[f'{asset_id}_price'] = pd.Series(dtype=float)
 
-    # 4) Ensure we have our 'datetime' column
+    # 4) Guarantee 'datetime' exists
     if 'datetime' not in df.columns:
-        raise KeyError("Failed to create a 'datetime' column")
+        # fallback: grab the index
+        df['datetime'] = df.index
 
-    # 5) Cast to datetime and strip tz
-    df['datetime'] = pd.to_datetime(df['datetime']).dt.tz_localize(None)
+    # 5) Cast + strip tz
+    df['datetime'] = pd.to_datetime(df['datetime'], errors='coerce').dt.tz_localize(None)
 
-    return df
+    # 6) Keep only the two desired cols
+    return df[['datetime', f'{asset_id}_price']]
 
 def fetch_yfinance_price_hourly(
-    asset_id:  str,
+    asset_id:   str,
     start_date: datetime.date,
     end_date:   datetime.date,
-    quote_asset: str = 'USD'
+    quote_asset:str = 'USD'
 ) -> pd.DataFrame:
     """
     Fetches hourly closing prices for a given asset via yfinance,
-    returns a DataFrame with ['datetime', '<asset_id>_price'].
+    always returns a DataFrame with ['datetime', '<asset_id>_price'].
     """
     symbol = asset_id.upper()
     ticker = f"{symbol}-{quote_asset.upper()}"
 
-    # inclusive start at 00:00:00 of start_date
+    # inclusive start at 00:00:00
     start_ts = dt.combine(start_date, dt.min.time()).strftime('%Y-%m-%d %H:%M:%S')
-    # exclusive end: 00:00:00 of the day after end_date
+    # exclusive end: 00:00:00 next day
     end_ts   = (dt.combine(end_date, dt.min.time()) + timedelta(days=1))\
-                  .strftime('%Y-%m-%d %H:%M:%S')
+                   .strftime('%Y-%m-%d %H:%M:%S')
 
-    # Download the full OHLCV (may come in a MultiIndex if you pass multiple tickers)
     raw = yf.download(
         tickers=ticker,
         start=start_ts,
@@ -176,8 +175,4 @@ def fetch_yfinance_price_hourly(
         progress=False
     )
 
-    # Normalize it
-    clean = normalize_yf_df(raw, asset_id)
-
-    # Return exactly datetime + price
-    return clean[['datetime', f'{asset_id}_price']]
+    return normalize_yf_df(raw, asset_id)
