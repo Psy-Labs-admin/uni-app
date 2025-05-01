@@ -1,83 +1,54 @@
-import requests
-import yfinance as yf
+import os
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime
 
-def fetch_yfinance_price_range(
-    symbol: str,
-    start_date: datetime.date,
-    end_date: datetime.date,
-    quote_asset: str = 'USD'
-) -> pd.DataFrame:
-    """
-    Fetches daily closing prices for a given asset symbol via yfinance.
-    
-    :param symbol:        токен, например 'ETH', 'BTC', 'UNI'
-    :param quote_asset:   котируемая валюта на Yahoo Finance, по умолчанию 'USD'
-    :return:              DataFrame с колонками ['date', '<symbol>_price']
-    """
-    # поправляем Wrapped-символы на базовые (если нужно)
-    sym = symbol.upper()
-    if sym.startswith('W') and sym[1:] in ('ETH','BTC'):
-        sym = sym[1:]
-    
-    ticker = f"{sym}-{quote_asset}"
-    # yfinance принимает строки '2021-01-01'
-    start_str = start_date.isoformat()
-    end_str   = end_date.isoformat()
-    
-    # Забираем данные
-    df = yf.download(
-        tickers=ticker,
-        start=start_str,
-        end=(datetime.combine(end_date, datetime.min.time()) + pd.Timedelta(days=1)).strftime('%Y-%m-%d'),
-        interval='1d',
-        progress=False
-    )
-    
-    # df.index — DatetimeIndex, столбец 'Close' содержит цену закрытия
-    df = df[['Close']].reset_index()
-    df['date'] = df['Date'].dt.date
-    df = df.rename(columns={'Close': f'{symbol}_price'})
-    return df[['date', f'{symbol}_price']]
-
-def _flatten_df(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Collapse any MultiIndex on rows or columns into simple one-level.
-    """
-    # 1) Flatten a MultiIndex on the row index
-    if isinstance(df.index, pd.MultiIndex):
-        df = df.reset_index()
-    # 2) Flatten a MultiIndex on the columns
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = ['_'.join(map(str, col)).strip() for col in df.columns.values]
-    return df
-
-def add_prices_flexible(
+def add_prices_from_csv(
     vol_df: pd.DataFrame,
     tokens: list[str],
-    quote_asset: str = 'USDT'
+    prices_dir: str = './data'
 ) -> pd.DataFrame:
     """
-    Adds daily price columns for arbitrary tokens onto vol_df['date'].
-    Will first collapse any MultiIndex on either DataFrame before merging.
+    Для каждого токена из tokens подгружает <BASE>_prices.csv из prices_dir
+    и мёрджит его по дате в vol_df. Если токен начинается с 'W' (например WBTC),
+    то этот префикс отбрасывается при поиске файла, а затем колонка переименовывается
+    обратно в {token}_price.
+    
+    :param vol_df:    DataFrame с колонкой 'date' (str или datetime)
+    :param tokens:    список токенов, пример ['BTC', 'WBTC', 'CRV', 'WLDO']
+    :param prices_dir: папка, где лежат CSV-файлы <BASE>_prices.csv
+    :return:          тот же vol_df + колонки {token}_price
     """
-    # 0) make a copy and ensure date is a plain python date
-    result = vol_df.copy()
-    result['date'] = pd.to_datetime(result['date']).dt.date
+    df = vol_df.copy()
+    # нормализуем дату к date
+    df['date'] = pd.to_datetime(df['date']).dt.date
 
-    # 1) Flatten vol_df in case it has any MultiIndex
-    result = _flatten_df(result)
-
-    start_date, end_date = result['date'].min(), result['date'].max()
-
-    # 2) For each token, fetch its price series and flatten *that* too
     for token in tokens:
-        price_df = fetch_yfinance_price_range(token, start_date, end_date)
-        price_df = _flatten_df(price_df)
+        # Если токен начинается на 'W', убираем префикс
+        if token.upper().startswith('W') and len(token) > 1:
+            base = token[1:].upper()
+        else:
+            base = token.upper()
 
-        # 3) Now safe to merge
-        result = result.merge(price_df, on='date', how='left')
+        csv_path = os.path.join(prices_dir, f"{base}_prices.csv")
+        if not os.path.exists(csv_path):
+            raise FileNotFoundError(f"Не найден файл цен для {base}: {csv_path}")
 
-    return result
+        # читаем исторические цены
+        price_df = pd.read_csv(csv_path, parse_dates=['date'])
+        price_df['date'] = price_df['date'].dt.date
 
+        # мёржим по дате
+        base_col = f"{base}_price"
+        df = df.merge(
+            price_df[['date', base_col]],
+            on='date',
+            how='left'
+        )
+
+        # если был префикс W — переименуем колонку обратно
+        target_col = f"{token}_price"
+        if base != token.upper():
+            df = df.rename(columns={base_col: target_col})
+        # в противном случае оставляем {BASE}_price
+
+    return df
