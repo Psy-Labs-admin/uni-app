@@ -44,6 +44,7 @@ def fetch_yfinance_price_hourly(
         'Close': f'{asset_id}_price'
     })
     # Уберём информацию о таймзоне, если она есть
+    print(df.head())
     df['datetime'] = df['datetime'].dt.tz_localize(None)
 
     return df[['datetime', f'{asset_id}_price']]
