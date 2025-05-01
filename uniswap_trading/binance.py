@@ -41,27 +41,42 @@ def fetch_yfinance_price_range(
     df = df.rename(columns={'Close': f'{symbol}_price'})
     return df[['date', f'{symbol}_price']]
 
+def _flatten_df(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Collapse any MultiIndex on rows or columns into simple one-level.
+    """
+    # 1) Flatten a MultiIndex on the row index
+    if isinstance(df.index, pd.MultiIndex):
+        df = df.reset_index()
+    # 2) Flatten a MultiIndex on the columns
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = ['_'.join(map(str, col)).strip() for col in df.columns.values]
+    return df
+
 def add_prices_flexible(
     vol_df: pd.DataFrame,
     tokens: list[str],
     quote_asset: str = 'USDT'
 ) -> pd.DataFrame:
-    # 1) copy and flatten any MultiIndex on rows or columns
-    df = vol_df.copy()
-    if isinstance(df.index, pd.MultiIndex):
-        df = df.reset_index()
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = ['_'.join(map(str, col)).strip() for col in df.columns.values]
+    """
+    Adds daily price columns for arbitrary tokens onto vol_df['date'].
+    Will first collapse any MultiIndex on either DataFrame before merging.
+    """
+    # 0) make a copy and ensure date is a plain python date
+    result = vol_df.copy()
+    result['date'] = pd.to_datetime(result['date']).dt.date
 
-    # 2) make sure we have a proper date column
-    df['date'] = pd.to_datetime(df['date']).dt.date
-    start_date, end_date = df['date'].min(), df['date'].max()
+    # 1) Flatten vol_df in case it has any MultiIndex
+    result = _flatten_df(result)
 
-    # 3) merge in each token’s price series
-    result = df
+    start_date, end_date = result['date'].min(), result['date'].max()
+
+    # 2) For each token, fetch its price series and flatten *that* too
     for token in tokens:
         price_df = fetch_yfinance_price_range(token, start_date, end_date)
-        # price_df is already a simple 2-column, RangeIndex DF
+        price_df = _flatten_df(price_df)
+
+        # 3) Now safe to merge
         result = result.merge(price_df, on='date', how='left')
 
     return result
