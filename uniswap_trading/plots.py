@@ -1,77 +1,67 @@
 import pandas as pd
 import plotly.express as px
 
-def generate_fee_visualizations_hourly(
+def generate_fee_visualizations(
     vol_df: pd.DataFrame,
-    date_col: str = 'datetime',
+    date_col: str = 'date',
     fee_col: str = 'fees_usd'
 ):
+    """
+    Упаковывает построение трёх интерактивных графиков по комиссиям:
+      1. Daily Fees (линия)
+      2. Cumulative Fees (кумулятивная линия)
+      3. Calendar Heatmap (тепловая карта по дням недели и номерам недель)
+
+    :param vol_df: DataFrame с колонкой дат и колонкой сборов
+    :param date_col: имя колонки с датами (datetime или строка)
+    :param fee_col: имя колонки с ежедневными комиссиями в USD
+    :return: tuple(fig_daily, fig_cum, fig_heatmap)
+    """
     df = vol_df.copy()
+    # Приводим дату к datetime (если надо)
     df[date_col] = pd.to_datetime(df[date_col])
 
-    # 1) Hourly Fees
-    fig_hourly = px.line(
+    # 1) Daily Fees
+    fig_daily = px.line(
         df, x=date_col, y=fee_col,
-        title='Hourly Fees (USD)'
+        title='Daily Fees (USD)'
     )
-    fig_hourly.update_layout(
-        xaxis_title='Datetime',
+    fig_daily.update_layout(
+        xaxis_title='Date',
         yaxis_title='Fees (USD)',
         hovermode='x unified'
     )
 
     # 2) Cumulative Fees
-    df = df.sort_values(by=date_col)
     df['cum_fees'] = df[fee_col].cumsum()
     fig_cum = px.line(
         df, x=date_col, y='cum_fees',
         title='Cumulative Fees (USD)'
     )
     fig_cum.update_layout(
-        xaxis_title='Datetime',
+        xaxis_title='Date',
         yaxis_title='Cumulative Fees (USD)',
         hovermode='x unified'
     )
 
-    # 3) Heatmap by Weekday vs Hour
-    #  — сначала агрегируем (суммируем) все записи, у которых одна и та же метка часа
-    cal_ser = (
-        df
-        .set_index(date_col)[fee_col]
-        .groupby(level=0).sum()
-        .asfreq('H', fill_value=0)
-    )
-    # теперь превращаем Series в DataFrame и расчитываем день недели и час
-    cal_df = cal_ser.to_frame(name=fee_col)
-    cal_df['weekday'] = cal_df.index.weekday
-    cal_df['hour']    = cal_df.index.hour
-
-    # pivot: строки — дни недели, столбцы — часы
-    heatmap_df = cal_df.pivot_table(
+    # 3) Calendar Heatmap
+    cal_df = df.set_index(date_col).asfreq('D', fill_value=0)
+    cal_df['week'] = cal_df.index.isocalendar().week
+    cal_df['weekday'] = cal_df.index.weekday  # Mon=0 … Sun=6
+    heatmap_df = cal_df.pivot(
         index='weekday',
-        columns='hour',
-        values=fee_col,
-        fill_value=0
+        columns='week',
+        values=fee_col
     )
-
-    weekday_names = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun']
-
     fig_heatmap = px.imshow(
         heatmap_df,
-        labels=dict(x='Hour of Day', y='Weekday', color='Fees (USD)'),
-        title='Heatmap of Hourly Fees by Weekday',
-        aspect='auto'
-    )
-    fig_heatmap.update_xaxes(
-        tickmode='array',
-        tickvals=list(range(24)),
-        ticktext=[f"{h}:00" for h in range(24)]
+        labels=dict(x='Week Number', y='Weekday', color='Fees (USD)'),
+        title='Calendar Heatmap of Daily Fees (USD)'
     )
     fig_heatmap.update_yaxes(
-        tickmode='array',
+        ticktext=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],
         tickvals=list(range(7)),
-        ticktext=weekday_names,
         autorange='reversed'
     )
 
-    return fig_hourly, fig_cum, fig_heatmap
+    return fig_daily, fig_cum, fig_heatmap

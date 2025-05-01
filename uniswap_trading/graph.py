@@ -53,59 +53,6 @@ def fetch_uniswap_v3_pools_by_tokens(
     return pd.DataFrame(all_rows)
 
 
-def fetch_uniswap_v3_pool_volume_hourly(
-    pool_address: str,
-    start_date: str,
-    end_date: str,
-    symbols: List[str],
-    bearer_token: str,
-) -> pd.DataFrame:
-    gateway_url = 'https://gateway.thegraph.com/api/subgraphs/id/5zvR82QoaXYFyDEKLZ9t6v9adgnptxYpKpSbxtgVENFV'
-    headers = {
-        'Content-Type': 'application/json',
-        'Authorization': f'Bearer {bearer_token}'
-    }
-
-    query = '''
-    query PoolHourlyVolumes($pool: ID!, $start: Int!, $end: Int!) {
-      poolHourDatas(
-        where: { pool: $pool, periodStartUnix_gte: $start, periodStartUnix_lt: $end },
-        orderBy: periodStartUnix,
-        orderDirection: asc
-      ) {
-        periodStartUnix
-        volumeToken0
-        volumeToken1
-      }
-    }
-    '''
-    # UNIX timestamps в секундах
-    start_date, end_date = get_date_timestamps(start_date, end_date)
-    variables = {
-        'pool': pool_address.lower(),
-        'start': start_date,
-        'end': end_date
-    }
-
-    resp = requests.post(
-        gateway_url,
-        headers=headers,
-        json={'query': query, 'variables': variables}
-    )
-    resp.raise_for_status()
-    data = resp.json()['data']['poolHourDatas']
-
-    rows = []
-    for item in data:
-        dt = datetime.fromtimestamp(item['periodStartUnix'])
-        rows.append({
-            'datetime': dt,              # точный час
-            symbols[0]: float(item['volumeToken0']),
-            symbols[1]: float(item['volumeToken1'])
-        })
-
-    return pd.DataFrame(rows)
-
 def fetch_uniswap_v3_pool_volume(
     pool_address: str,
     start_date: datetime.date,
