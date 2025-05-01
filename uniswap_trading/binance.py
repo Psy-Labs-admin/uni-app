@@ -53,12 +53,12 @@ def add_prices_flexible(
     :param quote_asset: quote currency for Binance (default USDT)
     """
     df = vol_df.copy()
-    df['datetime'] = pd.to_datetime(df['datetime']).dt.date
-    start_date, end_date = df['datetime'].min(), df['datetime'].max()
+    df['date'] = pd.to_datetime(df['date']).dt.date
+    start_date, end_date = df['date'].min(), df['date'].max()
 
     # Merge prices for all tokens
     result = df
     for token in tokens:
         price_df = fetch_yfinance_price_range(token, start_date, end_date)
-        result = result.merge(price_df, on='datetime', how='left')
+        result = result.merge(price_df, on='date', how='left')
     return result

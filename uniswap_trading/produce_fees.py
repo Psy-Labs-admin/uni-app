@@ -23,11 +23,7 @@ def produce_fees(
     )
     
     vol_df = fetch_uniswap_v3_pool_volume(pools_df[pools_df.index == 0].pool_id[0], start_date, end_date, symbols, bearer_token)
-    vol_df[symbols] = (
-        vol_df[symbols]
-        .replace(0, np.nan)
-        .ffill()
-    )
+    
     vol_with_usd = add_prices_flexible(vol_df, symbols)
     vol_with_usd_with_fee = add_daily_fees_usd_dynamic(
         vol_with_usd,
