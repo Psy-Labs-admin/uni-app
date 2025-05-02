@@ -18,3 +18,6 @@ def fetch_token_addresses(symbols: list[str], token_list_url: str = 'https://tok
         matches = [t for t in tokens if t.get('symbol') == sym]
         mapping[sym] = matches[0]['address'] if matches else None
     return mapping
+
+if __name__ == '__main__':
+    print(fetch_token_addresses(["CRV", "LDO"]))

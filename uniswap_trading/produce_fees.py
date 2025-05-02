@@ -16,7 +16,9 @@ def produce_fees(
     # token_1 = tokens[symbols[1]]
 
     token_0 = '0xC02aaa39b223FE8D0A0e5C4F27eAD9083C756Cc2'
-    token_1 = '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599'
+    # token_1 = "0xD533a949740bb3306d119CC777fa900bA034cd52" # CRV
+    token_1 = "0x5A98FcBEA516Cf06857215779Fd812CA3beF1B32" # LDO
+    # token_1 = '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599' # WBTC
 
     pools_df = fetch_uniswap_v3_pools_by_tokens(bearer_token, [token_0, token_1])
     pools_df = (
@@ -26,15 +28,17 @@ def produce_fees(
     )
     
     vol_df = fetch_uniswap_v3_pool_volume(pools_df[pools_df.index == 0].pool_id[0], start_date, end_date, symbols, bearer_token)
-    print(vol_df.head())
+    print(vol_df.shape)
     vol_with_usd = add_prices_from_csv(vol_df, symbols)
-    print("WITH USD:", vol_with_usd.head())
+    print(vol_with_usd.shape)
     vol_with_usd_with_fee = add_daily_fees_usd_dynamic(
         vol_with_usd,
         symbols,
         pools_df[pools_df.index == 0].feeTier[0])
+    csv_path = 'vol_with_usd_with_fee_eth_ldo.csv'
+    vol_with_usd_with_fee.to_csv(csv_path, index=False)
+    print(vol_with_usd_with_fee.shape)
     return generate_fee_visualizations(vol_with_usd_with_fee)
 
 if __name__ == '__main__':
-    fig_daily, fig_cum, fig_heatmap = produce_fees(["WETH", "WBTC"], "2024-07-01", "2025-04-01")
-    fig_daily.show()
+    fig_daily, fig_cum, fig_heatmap = produce_fees(["WETH", "LDO"], "2023-01-01", "2025-05-01")

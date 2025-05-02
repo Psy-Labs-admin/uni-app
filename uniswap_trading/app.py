@@ -8,6 +8,7 @@ from price_simulation import simulate_prices
 from simulation import run_simulation
 from strategy import UniswapV4Strategy
 from produce_fees import produce_fees
+from plots import generate_fee_visualizations
 
 # --- Plotting Functions with Hover and Unified Mode ---
 
@@ -172,28 +173,56 @@ def main():
     # --- Fees Page ---
     if page == "Fees":
         st.header("💰 Комиссии Uniswap V4 — Анализ и Визуализация")
-        # Параметры для комиссии
+
+        # 1) Параметры периода
         start_date = st.sidebar.date_input("Start Date", pd.to_datetime("2024-05-01"))
-        end_date = st.sidebar.date_input("End Date", pd.to_datetime("today"))
-        symbols = st.sidebar.multiselect(
-            "Symbols",
-            options=[
-                "WETH", "WBTC", "USDC", "USDT", "DAI", "UNI", "LINK", "AAVE", "COMP", "MKR", "SNX", "CRV", "SUSHI"
-            ],
-            default=["WETH", "WBTC", "USDC"]
+        end_date   = st.sidebar.date_input("End Date", pd.to_datetime("today"))
+
+        # 2) Выбор файла по второму активу
+        symbol = st.sidebar.selectbox(
+            "Select token",
+            options=["WBTC", "CRV", "LDO"],
+            index=0
         )
+
         if st.sidebar.button("Generate Fees Plots"):
-            # Получаем три фигуры: daily, cumulative, heatmap
-            fig_daily, fig_cum, fig_heatmap = produce_fees(
-                symbols, start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d")
+            # 3) Маппинг токена → CSV-файл
+            file_map = {
+                "WBTC": "./data/vol_with_usd_with_fee_eth_btc.csv",
+                "CRV":  "./data/vol_with_usd_with_fee_eth_crv.csv",
+                "LDO":  "./data/vol_with_usd_with_fee_eth_ldo.csv",
+            }
+
+            # 4) Читаем выбранный CSV
+            df_fees = pd.read_csv(
+                file_map[symbol],
+                parse_dates=["date"]
             )
+
+            # 5) Фильтрация по диапазону и сортировка
+            mask = (
+                (df_fees["date"] >= pd.to_datetime(start_date)) &
+                (df_fees["date"] <= pd.to_datetime(end_date))
+            )
+            df_fees = df_fees.loc[mask].sort_values("date")
+
+            # 7) Строим графики на основе готового DataFrame
+            #    (предполагаем функцию produce_fees_from_df, 
+            #     которая принимает DataFrame с датой + fees_usd* и рисует ваши три фигуры)
+            fig_daily, fig_cum, fig_heatmap = generate_fee_visualizations(df_fees)
+
             st.subheader("Daily Fees")
             st.plotly_chart(fig_daily, use_container_width=True)
+
             st.subheader("Cumulative Fees")
             st.plotly_chart(fig_cum, use_container_width=True)
+
             st.subheader("Fees Heatmap")
             st.plotly_chart(fig_heatmap, use_container_width=True)
+
         return
+
+
 
     if page == "Guide":
         st.header("📖 User Guide")
