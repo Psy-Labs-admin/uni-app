@@ -321,10 +321,37 @@ def main():
 
     else:
         st.sidebar.header("Historical Data")
-        pair = st.sidebar.selectbox(
-            "Select pair",
-            ["WETH-WBTC", "WETH-CRV", "WETH-LDO"]
+        pair = st.sidebar.selectbox("Select pair", ["WETH-WBTC", "WETH-CRV", "WETH-LDO"])
+
+        # читаем полный CSV, чтобы получить min/max date
+        filename = {
+            "WETH-WBTC": "vol_with_usd_with_fee_eth_btc.csv",
+            "WETH-CRV":  "vol_with_usd_with_fee_eth_crv.csv",
+            "WETH-LDO":  "vol_with_usd_with_fee_eth_ldo.csv",
+        }[pair]
+        df_full = pd.read_csv(
+            os.path.join("data", filename),
+            parse_dates=["date"]
+        ).sort_values("date")
+
+        # по-умолчанию диапазон — полный
+        min_date, max_date = df_full["date"].min(), df_full["date"].max()
+        start_date, end_date = st.sidebar.date_input(
+            "Date range",
+            value=[min_date, max_date],
+            min_value=min_date,
+            max_value=max_date
         )
+
+        # фильтрация по дате
+        df = df_full[(df_full["date"] >= pd.to_datetime(start_date)) &
+                     (df_full["date"] <= pd.to_datetime(end_date))]
+
+        # собираем ряды для стратегии
+        base_prices  = df["WETH_price"].tolist()
+        quote_prices = df[f"{pair.split('-')[1]}_price"].tolist()
+        prices_ratio = [b / q for b, q in zip(base_prices, quote_prices)]
+        times        = df["date"].tolist()
 
     # Sidebar: Strategy Parameters
     st.sidebar.header("Strategy Parameters")
@@ -373,8 +400,8 @@ def main():
             base_prices  = df_prices["ETH"].tolist()
             quote_prices = df_prices["BTC"].tolist()
             times        = df_prices.index.tolist()
-        else:
-            prices_ratio, base_prices, quote_prices, times = load_historical_pair(pair)
+        # else:
+        #     prices_ratio, base_prices, quote_prices, times = load_historical_pair(pair)
 
         # Run strategy
         strategy = UniswapV4Strategy(epsilon_ticks, range_ticks, alpha, lambda_, initial_eth, initial_btc)
