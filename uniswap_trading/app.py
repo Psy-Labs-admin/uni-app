@@ -1,3 +1,4 @@
+import os
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -156,6 +157,28 @@ def plot_wallet_and_price(collected: dict) -> go.Figure:
     )
     return fig
 
+# --- 1. Вспомогательная функция для загрузки исторических CSV по паре ---
+def load_historical_pair(pair: str):
+    """
+    читаем один из трёх CSV: weth_wbtc.csv, weth_crv.csv или weth_ldo.csv
+    возвращаем три списка: ratio, base_prices, quote_prices
+    """
+    filename = {
+        "WETH-WBTC": "vol_with_usd_with_fee_eth_btc.csv",
+        "WETH-CRV":  "vol_with_usd_with_fee_eth_crv.csv",
+        "WETH-LDO":  "vol_with_usd_with_fee_eth_ldo.csv",
+    }[pair]
+
+    df = pd.read_csv(
+        os.path.join("data", filename),
+        parse_dates=["date"]
+    ).sort_values("date")
+
+    base = df["WETH_price"].tolist()
+    quote = df[f"{pair.split('-')[1]}_price"].tolist()
+    ratio = [b/q for b, q in zip(base, quote)]
+    return ratio, base, quote, df["date"].tolist()
+
 # --- Main Streamlit App ---
 
 # --- Main Application ---
@@ -277,17 +300,31 @@ def main():
         > чтобы быстро оценить поведение стратегии, затем запускайте Monte Carlo и Sensitivity Analysis.
         """)
         return  # выходим после показа гайда
+    
+    st.sidebar.header("Data Source")
+    data_src = st.sidebar.radio(
+        label="Select data",
+        options=["Simulated", "Historical"]
+    )
 
     # Sidebar: Simulation Parameters
-    st.sidebar.header("Simulation Parameters")
-    start_price_eth = st.sidebar.number_input("Start ETH Price", value=2000.0, help="Initial price of ETH in USD")
-    start_price_btc = st.sidebar.number_input("Start BTC Price", value=30000.0, help="Initial price of BTC in USD")
-    rho = st.sidebar.number_input("Correlation (rho)", min_value=-1.0, max_value=1.0, value=0.0, help="Correlation between ETH and BTC returns")
-    vol_eth = st.sidebar.number_input("ETH Volatility (std dev)", value=0.01, help="Per-step std of ETH returns")
-    vol_btc = st.sidebar.number_input("BTC Volatility (std dev)", value=0.015, help="Per-step std of BTC returns")
-    trend_eth = st.sidebar.number_input("ETH Trend", value=0.0, help="Expected per-step drift of ETH")
-    trend_btc = st.sidebar.number_input("BTC Trend", value=0.0, help="Expected per-step drift of BTC")
-    n_steps = st.sidebar.number_input("Number of Steps", value=100, step=1, help="Total simulation steps")
+    if data_src == "Simulated":
+        st.sidebar.header("Simulation Parameters")
+        start_price_eth = st.sidebar.number_input("Start ETH Price", value=2000.0, help="Initial price of ETH in USD")
+        start_price_btc = st.sidebar.number_input("Start BTC Price", value=30000.0, help="Initial price of BTC in USD")
+        rho = st.sidebar.number_input("Correlation (rho)", min_value=-1.0, max_value=1.0, value=0.0, help="Correlation between ETH and BTC returns")
+        vol_eth = st.sidebar.number_input("ETH Volatility (std dev)", value=0.01, help="Per-step std of ETH returns")
+        vol_btc = st.sidebar.number_input("BTC Volatility (std dev)", value=0.015, help="Per-step std of BTC returns")
+        trend_eth = st.sidebar.number_input("ETH Trend", value=0.0, help="Expected per-step drift of ETH")
+        trend_btc = st.sidebar.number_input("BTC Trend", value=0.0, help="Expected per-step drift of BTC")
+        n_steps = st.sidebar.number_input("Number of Steps", value=100, step=1, help="Total simulation steps")
+
+    else:
+        st.sidebar.header("Historical Data")
+        pair = st.sidebar.selectbox(
+            "Select pair",
+            ["WETH-WBTC", "WETH-CRV", "WETH-LDO"]
+        )
 
     # Sidebar: Strategy Parameters
     st.sidebar.header("Strategy Parameters")
@@ -316,27 +353,33 @@ def main():
     lambda_range = st.sidebar.slider("Lambda range", 0.5, 1.0, (0.8, 0.95), step=0.05)
     sens_steps = st.sidebar.number_input("Grid size per dimension", value=5, min_value=2, step=1)
 
+    run_btn = "Run Simulation" if data_src == "Simulated" else "Run Backtest"
+
     # Run Simulation
-    if st.sidebar.button("Run Simulation"):
-        # Base simulation run
-        df_prices = simulate_prices(
-            start_price_eth=start_price_eth,
-            start_price_btc=start_price_btc,
-            rho=rho,
-            sigma_eth=vol_eth,
-            sigma_btc=vol_btc,
-            trend_eth=trend_eth,
-            trend_btc=trend_btc,
-            T=int(n_steps)
-        )
-        prices_ratio = df_prices["ETH/BTC"].tolist()
-        eth_prices = df_prices["ETH"].tolist()
-        btc_prices = df_prices["BTC"].tolist()
+    if st.sidebar.button(run_btn):
+        # --- 6. Подготовка рядов цен  ---
+        if data_src == "Simulated":
+            df_prices = simulate_prices(
+                start_price_eth=start_price_eth,
+                start_price_btc=start_price_btc,
+                rho=rho,
+                sigma_eth=vol_eth,
+                sigma_btc=vol_btc,
+                trend_eth=trend_eth,
+                trend_btc=trend_btc,
+                T=int(n_steps)
+            )
+            prices_ratio = df_prices["ETH/BTC"].tolist()
+            base_prices  = df_prices["ETH"].tolist()
+            quote_prices = df_prices["BTC"].tolist()
+            times        = df_prices.index.tolist()
+        else:
+            prices_ratio, base_prices, quote_prices, times = load_historical_pair(pair)
 
         # Run strategy
         strategy = UniswapV4Strategy(epsilon_ticks, range_ticks, alpha, lambda_, initial_eth, initial_btc)
         collected, strat_obj, strat_usd, hodl_usd = run_simulation(
-            prices_ratio, eth_prices, btc_prices, strategy, initial_eth, initial_btc
+            prices_ratio, base_prices, quote_prices, strategy, initial_eth, initial_btc
         )
 
         # Performance Metrics
@@ -439,7 +482,7 @@ def main():
                 for a in alpha_vals:
                     for lam in lambda_vals:
                         strat_s = UniswapV4Strategy(eps, range_ticks, a, lam, initial_eth, initial_btc)
-                        _, _, strat_usd_s, _ = run_simulation(prices_ratio, eth_prices, btc_prices, strat_s, initial_eth, initial_btc)
+                        _, _, strat_usd_s, _ = run_simulation(prices_ratio, base_prices, quote_prices, strat_s, initial_eth, initial_btc)
                         rets = np.diff(strat_usd_s) / strat_usd_s[:-1]
                         sharpe = np.mean(rets) / np.std(rets) * np.sqrt(252)
                         results.append({'epsilon': eps, 'alpha': a, 'lambda': lam, 'sharpe': sharpe})
