@@ -7,6 +7,7 @@ import plotly.express as px
 
 from price_simulation import simulate_prices
 from simulation import run_simulation
+from simulation_historical import run_simulation_history
 from strategy import UniswapV4Strategy
 from produce_fees import produce_fees
 from plots import generate_fee_visualizations
@@ -351,6 +352,8 @@ def main():
         base_prices  = df["WETH_price"].tolist()
         quote_prices = df[f"{pair.split('-')[1]}_price"].tolist()
         prices_ratio = [b / q for b, q in zip(base_prices, quote_prices)]
+        fees = df["fees_usd"].tolist()
+        daily_usd_volume = df["daily_volume_usd"].tolist()
         times        = df["date"].tolist()
 
     # Sidebar: Strategy Parameters
@@ -364,6 +367,8 @@ def main():
 
     # Sidebar: Visualization Options
     st.sidebar.header("Visualization Options")
+    if data_src == "Historical":
+        show_fees = st.sidebar.checkbox("Show Cumulative Fees")
     show_ranges = st.sidebar.checkbox("Price & Strategy Ranges")
     show_actions = st.sidebar.checkbox("Ranges & Actions")
     show_vs_hodl = st.sidebar.checkbox("Strategy vs HODL")
@@ -400,14 +405,16 @@ def main():
             base_prices  = df_prices["ETH"].tolist()
             quote_prices = df_prices["BTC"].tolist()
             times        = df_prices.index.tolist()
-        # else:
-        #     prices_ratio, base_prices, quote_prices, times = load_historical_pair(pair)
 
-        # Run strategy
-        strategy = UniswapV4Strategy(epsilon_ticks, range_ticks, alpha, lambda_, initial_eth, initial_btc)
-        collected, strat_obj, strat_usd, hodl_usd = run_simulation(
-            prices_ratio, base_prices, quote_prices, strategy, initial_eth, initial_btc
-        )
+            strategy = UniswapV4Strategy(epsilon_ticks, range_ticks, alpha, lambda_, initial_eth, initial_btc)
+            collected, strat_obj, strat_usd, hodl_usd = run_simulation(
+                prices_ratio, base_prices, quote_prices, strategy, initial_eth, initial_btc
+            )
+        else:
+            strategy = UniswapV4Strategy(epsilon_ticks, range_ticks, alpha, lambda_, initial_eth, initial_btc)
+            collected, strat_obj, strat_usd, hodl_usd, cumulative_fees = run_simulation_history(
+                prices_ratio, base_prices, quote_prices, strategy, initial_eth, initial_btc, fees, daily_usd_volume
+            )
 
         # Performance Metrics
         st.subheader("Performance Metrics")
@@ -439,6 +446,7 @@ def main():
 
         # Show collected data and standard plots
         st.subheader("Collected Data")
+        
         st.dataframe(pd.DataFrame(collected))
         if show_ranges:
             st.subheader("Price & Strategy Ranges")
@@ -452,6 +460,24 @@ def main():
         if show_wallet:
             st.subheader("Normalized Wallet & Price")
             st.plotly_chart(plot_wallet_and_price(collected), use_container_width=True)
+
+        if data_src == "Historical":
+            if show_fees: 
+                st.subheader("Cumulative Fees Over Time")
+                fig_fees = go.Figure()
+                times = collected.get("Time", [])
+                fig_fees.add_trace(go.Scatter(
+                    x=times,
+                    y=cumulative_fees,
+                    mode="lines",
+                    name="Cumulative Fees (USD)"
+                ))
+                fig_fees.update_layout(
+                    xaxis_title="Step",
+                    yaxis_title="Cumulative Fees (USD)",
+                    height=400
+                )
+                st.plotly_chart(fig_fees, use_container_width=True)
 
         # Monte Carlo Simulation block
         if monte_carlo:
