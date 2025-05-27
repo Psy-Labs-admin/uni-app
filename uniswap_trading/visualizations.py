@@ -202,9 +202,9 @@ import plotly.express as px
 import matplotlib.pyplot as plt
 from itertools import cycle
 
-from price_simulation import simulate_prices
-from simulation import run_simulation
-from strategy import UniswapV4Strategy
+from uniswap_trading.price_simulation import simulate_prices
+from uniswap_trading.simulation import run_simulation
+from uniswap_trading.strategy import UniswapV4Strategy
 
 
 def plot_ranges(collected: dict) -> go.Figure:

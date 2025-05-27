@@ -63,54 +63,74 @@ def plot_ranges(collected: dict) -> go.Figure:
 
 def plot_combined_ranges_and_actions(collected: dict, strategy) -> go.Figure:
     fig = go.Figure()
+
+    # Price line
     fig.add_trace(go.Scatter(
-        x=collected["Time"], y=collected["Price"], mode="lines", name="ETH/BTC Price",
-        line=dict(color="black"), hovertemplate="Step: %{x}<br>Price: %{y:.4f}<extra></extra>"
+        x=collected["Time"],
+        y=collected["Price"],
+        mode="lines",
+        name="Price",
+        line=dict(color="black"),
+        hovertemplate="Step: %{x}<br>Price: %{y:.4f}<extra></extra>"
     ))
-    fig.add_trace(go.Scatter(
-        x=collected["Time"] + collected["Time"][::-1],
-        y=collected["Rest Zone High 1"] + collected["Rest Zone Low 1"][::-1],
-        fill='toself', fillcolor='rgba(128,128,128,0.15)', line=dict(color='rgba(0,0,0,0)'),
-        name="Rest Zone 1", hoverinfo='skip'
-    ))
-    fig.add_trace(go.Scatter(
-        x=collected["Time"] + collected["Time"][::-1],
-        y=collected["Rest Zone High 2"] + collected["Rest Zone Low 2"][::-1],
-        fill='toself', fillcolor='rgba(160,160,160,0.25)', line=dict(color='rgba(0,0,0,0)'),
-        name="Rest Zone 2", hoverinfo='skip'
-    ))
-    fig.add_trace(go.Scatter(
-        x=collected["Time"], y=collected["Primary Range Low"], mode="lines", name="Primary Range",
-        line=dict(color="blue", dash="dot"), hovertemplate="Step: %{x}<br>Primary Low: %{y:.4f}<extra></extra>"
-    ))
-    fig.add_trace(go.Scatter(
-        x=collected["Time"], y=collected["Primary Range High"], mode="lines", showlegend=False,
-        line=dict(color="blue", dash="dot"), hovertemplate="Step: %{x}<br>Primary High: %{y:.4f}<extra></extra>"
-    ))
-    fig.add_trace(go.Scatter(
-        x=collected["Time"], y=collected["Secondary Range Low"], mode="lines", name="Secondary Range",
-        line=dict(color="green", dash="dot"), hovertemplate="Step: %{x}<br>Secondary Low: %{y:.4f}<extra></extra>"
-    ))
-    fig.add_trace(go.Scatter(
-        x=collected["Time"], y=collected["Secondary Range High"], mode="lines", showlegend=False,
-        line=dict(color="green", dash="dot"), hovertemplate="Step: %{x}<br>Secondary High: %{y:.4f}<extra></extra>"
-    ))
+
+    # Rest zones
+    for rz, fillc in [
+        ("Rest Zone High 1", "rgba(128,128,128,0.15)"),
+        ("Rest Zone High 2", "rgba(160,160,160,0.25)")
+    ]:
+        low_key = rz.replace("High", "Low")
+        fig.add_trace(go.Scatter(
+            x=collected["Time"] + collected["Time"][::-1],
+            y=collected[rz] + collected[low_key][::-1],
+            fill="toself", fillcolor=fillc, line=dict(color="rgba(0,0,0,0)"),
+            name=rz.split()[-1], hoverinfo="skip"
+        ))
+
+    # Primary & Secondary ranges
+    for (low_key, high_key, name, color) in [
+        ("Primary Range Low", "Primary Range High", "Primary Range", "blue"),
+        ("Secondary Range Low", "Secondary Range High", "Secondary Range", "green")
+    ]:
+        fig.add_trace(go.Scatter(
+            x=collected["Time"], y=collected[low_key],
+            mode="lines", name=f"{name} Low",
+            line=dict(color=color, dash="dot"),
+            hovertemplate="Step: %{x}<br>Low: %{y:.4f}<extra></extra>"
+        ))
+        fig.add_trace(go.Scatter(
+            x=collected["Time"], y=collected[high_key],
+            mode="lines", showlegend=False,
+            line=dict(color=color, dash="dot"),
+            hovertemplate="Step: %{x}<br>High: %{y:.4f}<extra></extra>"
+        ))
+
+    # Build a DataFrame from the strategy log and filter out None times
     log_df = pd.DataFrame(strategy.log)
-    log_df["step"] = log_df.index
+    log_df = log_df[log_df["time"].notnull()].copy()
+    log_df["step"] = log_df["time"].astype(int)
+
+    # Plot each event as markers
     for event in log_df["event"].unique():
         subset = log_df[log_df["event"] == event]
         fig.add_trace(go.Scatter(
-            x=subset["step"], y=subset["price"], mode="markers", name=event,
+            x=subset["step"],
+            y=subset["price"],
+            mode="markers",
+            name=event,
+            marker=dict(size=6),
             hovertemplate=f"Event: {event}<br>Step: %{{x}}<br>Price: %{{y:.4f}}<extra></extra>"
         ))
+
     fig.update_layout(
         title="Ranges, Rest Zones and Strategy Actions",
         xaxis_title="Step",
         yaxis_title="Price",
         height=750,
-        hovermode='x unified'
+        hovermode="x unified"
     )
     return fig
+
 
 
 def plot_strategy_vs_hodl(strategy_usd: list, hodl_usd: list) -> go.Figure:
@@ -134,29 +154,49 @@ def plot_strategy_vs_hodl(strategy_usd: list, hodl_usd: list) -> go.Figure:
 
 
 def plot_wallet_and_price(collected: dict) -> go.Figure:
-    eth_scaled = [v / max(collected["ETH"]) for v in collected["ETH"]]
-    btc_scaled = [v / max(collected["BTC"]) for v in collected["BTC"]]
+    times       = collected["Time"]
+    base_vals   = collected["Base Amount"]
+    quote_vals  = collected["Quote Amount"]
+    price_vals  = collected["Price"]
+
+    # Вычисляем вес базового и вторичного активов в портфеле
+    total_vals   = [b + q for b, q in zip(base_vals, quote_vals)]
+    base_weight  = [(b / t) if t else 0 for b, t in zip(base_vals, total_vals)]
+    quote_weight = [(q / t) if t else 0 for q, t in zip(quote_vals, total_vals)]
+
+    # Нормализуем цену в [0,1]
+    min_p, max_p = min(price_vals), max(price_vals)
+    span = (max_p - min_p) or 1
+    price_scaled = [(p - min_p) / span for p in price_vals]
+
     fig = go.Figure()
+
+    # Base weight
     fig.add_trace(go.Scatter(
-        x=collected["Time"], y=eth_scaled, mode="lines+markers", name="ETH (scaled)",
-        hovertemplate="Time: %{x}<br>ETH (scaled): %{y:.3f}<extra></extra>"
+        x=times, y=base_weight, mode="lines+markers", name="Base Weight",
+        hovertemplate="Step: %{x}<br>Base Weight: %{y:.3f}<extra></extra>"
     ))
+    # Quote weight
     fig.add_trace(go.Scatter(
-        x=collected["Time"], y=btc_scaled, mode="lines+markers", name="BTC (scaled)",
-        hovertemplate="Time: %{x}<br>BTC (scaled): %{y:.3f}<extra></extra>"
+        x=times, y=quote_weight, mode="lines+markers", name="Quote Weight",
+        hovertemplate="Step: %{x}<br>Quote Weight: %{y:.3f}<extra></extra>"
     ))
+    # Normalized price
     fig.add_trace(go.Scatter(
-        x=collected["Time"], y=collected["Price"], mode="lines", name="ETH/BTC Price", line=dict(dash="dot"),
-        hovertemplate="Time: %{x}<br>Price: %{y:.4f}<extra></extra>"
+        x=times, y=price_scaled, mode="lines", name="Price (scaled)", line=dict(dash="dot"),
+        hovertemplate="Step: %{x}<br>Price (scaled): %{y:.3f}<extra></extra>"
     ))
+
     fig.update_layout(
-        title="Normalized Wallet vs Price",
-        xaxis_title="Time",
-        yaxis_title="Value (normalized)",
+        title="Asset Weights and Normalized Price",
+        xaxis_title="Step",
+        yaxis_title="Value (0–1)",
         height=500,
         hovermode='x unified'
     )
     return fig
+
+
 
 # --- 1. Вспомогательная функция для загрузки исторических CSV по паре ---
 def load_historical_pair(pair: str):
@@ -350,7 +390,8 @@ def main():
 
         # собираем ряды для стратегии
         base_prices  = df["WETH_price"].tolist()
-        quote_prices = df[f"{pair.split('-')[1]}_price"].tolist()
+        quote_token = pair.split("-")[1]
+        quote_prices = df[f"{quote_token}_price"].tolist()
         prices_ratio = [b / q for b, q in zip(base_prices, quote_prices)]
         fees = df["fees_usd"].tolist()
         daily_usd_volume = df["daily_volume_usd"].tolist()
@@ -363,12 +404,16 @@ def main():
     alpha = st.sidebar.number_input("Alpha (Liquidity Shift)", value=0.33, help="Rebalance weight between ranges")
     lambda_ = st.sidebar.number_input("Lambda (EWMA)", value=0.9, help="Decay factor for EWMA")
     initial_eth = st.sidebar.number_input("Initial ETH", value=1000.0, help="Starting ETH balance")
-    initial_btc = st.sidebar.number_input("Initial BTC", value=20.0, help="Starting BTC balance")
+    if data_src == "Historical":
+        initial_quote = st.sidebar.number_input(f"Initial {quote_token}", value=10.0)
+    else:
+        initial_quote = st.sidebar.number_input("Initial BTC", value=20.0)
 
     # Sidebar: Visualization Options
     st.sidebar.header("Visualization Options")
-    if data_src == "Historical":
+    if data_src == "Historical": 
         show_fees = st.sidebar.checkbox("Show Cumulative Fees")
+        compound_fees = st.sidebar.checkbox("Add Compound Fees") 
     show_ranges = st.sidebar.checkbox("Price & Strategy Ranges")
     show_actions = st.sidebar.checkbox("Ranges & Actions")
     show_vs_hodl = st.sidebar.checkbox("Strategy vs HODL")
@@ -406,14 +451,14 @@ def main():
             quote_prices = df_prices["BTC"].tolist()
             times        = df_prices.index.tolist()
 
-            strategy = UniswapV4Strategy(epsilon_ticks, range_ticks, alpha, lambda_, initial_eth, initial_btc)
+            strategy = UniswapV4Strategy(epsilon_ticks, range_ticks, alpha, lambda_, initial_eth, initial_quote)
             collected, strat_obj, strat_usd, hodl_usd = run_simulation(
-                prices_ratio, base_prices, quote_prices, strategy, initial_eth, initial_btc
+                prices_ratio, base_prices, quote_prices, strategy, initial_eth, initial_quote
             )
         else:
-            strategy = UniswapV4Strategy(epsilon_ticks, range_ticks, alpha, lambda_, initial_eth, initial_btc)
+            strategy = UniswapV4Strategy(epsilon_ticks, range_ticks, alpha, lambda_, initial_eth, initial_quote)
             collected, strat_obj, strat_usd, hodl_usd, cumulative_fees = run_simulation_history(
-                prices_ratio, base_prices, quote_prices, strategy, initial_eth, initial_btc, fees, daily_usd_volume
+                prices_ratio, base_prices, quote_prices, strategy, initial_eth, initial_quote, fees, daily_usd_volume, compound_fees
             )
 
         # Performance Metrics
@@ -496,8 +541,8 @@ def main():
                 )
                 prices_mc = df_mc["ETH/BTC"].tolist()
                 eth_mc, btc_mc = df_mc["ETH"].tolist(), df_mc["BTC"].tolist()
-                strat_mc = UniswapV4Strategy(epsilon_ticks, range_ticks, alpha, lambda_, initial_eth, initial_btc)  
-                _, _, usd_mc, hodl_mc = run_simulation(prices_mc, eth_mc, btc_mc, strat_mc, initial_eth, initial_btc)
+                strat_mc = UniswapV4Strategy(epsilon_ticks, range_ticks, alpha, lambda_, initial_eth, initial_quote)  
+                _, _, usd_mc, hodl_mc = run_simulation(prices_mc, eth_mc, btc_mc, strat_mc, initial_eth, initial_quote)
                 all_strat.append(usd_mc)
                 all_hodl.append(hodl_mc)
             arr_strat, arr_hodl = np.array(all_strat), np.array(all_hodl)
@@ -537,7 +582,7 @@ def main():
                         strat_s = UniswapV4Strategy(eps, range_ticks, a, lam, initial_eth, initial_btc)
                         _, _, strat_usd_s, _ = run_simulation(prices_ratio, base_prices, quote_prices, strat_s, initial_eth, initial_btc)
                         rets = np.diff(strat_usd_s) / strat_usd_s[:-1]
-                        sharpe = np.mean(rets) / np.std(rets) * np.sqrt(252)
+                        sharpe = np.mean(rets) / np.std(rets) * np.sqrt(252) # TODO: check how to right calculate sharpe ratio
                         results.append({'epsilon': eps, 'alpha': a, 'lambda': lam, 'sharpe': sharpe})
             df_sens = pd.DataFrame(results)
             lam_mid = lambda_vals[len(lambda_vals)//2]

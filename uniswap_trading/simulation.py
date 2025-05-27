@@ -1,39 +1,35 @@
-def run_simulation(prices, eth_prices, btc_prices, strategy, initial_eth, initial_btc):
+def run_simulation(
+    prices: list[float],
+    base_prices: list[float],
+    quote_prices: list[float],
+    strategy,
+    initial_base: float,
+    initial_quote: float
+) -> tuple[dict, object, list[float], list[float]]:
     """
     Запускает пошаговую симуляцию работы стратегии на заданных ценах.
 
-    :param prices:       list[float] — курс ETH/BTC
-    :param eth_prices:   list[float] — курс ETH в USD
-    :param btc_prices:   list[float] — курс BTC в USD
-    :param strategy:     объект стратегии с методами:
-                         - compute_range_boundaries(price) -> (low, high)
-                         - simulate_step(cur_price, prev_price) -> (status, progress)
-                         - compute_rest_zone(center) -> (rest_low, rest_high)
-                         и атрибутами eth, btc, ranges, log (список событий)
-    :param initial_eth:  float — стартовый объём ETH для HODL
-    :param initial_btc:  float — стартовый объём BTC для HODL
-    :return: tuple (collected, strategy, strategy_usd, hodl_usd)
-             collected     — dict со списками истории симуляции
-             strategy      — тот же объект стратегии (с обновлёнными полями)
-             strategy_usd  — list стоимости портфеля стратегии в USD на каждом шаге
-             hodl_usd      — list стоимости HODL‑портфеля в USD на каждом шаге
+    :param prices:       list[float] — курс base/quote
+    :param base_prices:  list[float] — курс базового актива в USD
+    :param quote_prices: list[float] — курс вторичного актива в USD
+    :param strategy:     объект стратегии с методами compute_range_boundaries, simulate_step, compute_rest_zone
+                         и полями base_amount, quote_amount, ranges, log
+    :param initial_base: float — стартовый объём базового актива для HODL
+    :param initial_quote: float — стартовый объём вторичного актива для HODL
+    :return: tuple (
+             collected: dict — история симуляции,
+             strategy:   object — стратегия с обновлёнными полями,
+             strategy_usd: list[float] — USD-стоимость портфеля стратегии,
+             hodl_usd:     list[float] — USD-стоимость HODL-портфеля
+        )
     """
-    # инициализация диапазона
+    # Инициализация диапазона
     initial_price = prices[0]
     low, high = strategy.compute_range_boundaries(initial_price)
-    strategy.ranges = [{
-        "low": low,
-        "high": high,
-        "center": initial_price,
-        "weight": 1.0
-    }]
-    strategy.log.append({
-        "event": "init_range",
-        "price": initial_price,
-        "range": strategy.ranges[0]
-    })
+    strategy.ranges = [{"low": low, "high": high, "center": initial_price, "weight": 1.0}]
+    strategy.log.append({"event": "init_range", "price": initial_price, "range": strategy.ranges[0]})
 
-    # подготовка структур
+    # Подготовка структур
     collected = {
         "Time": [],
         "Price": [],
@@ -45,53 +41,51 @@ def run_simulation(prices, eth_prices, btc_prices, strategy, initial_eth, initia
         "Rest Zone High 1": [],
         "Rest Zone Low 2": [],
         "Rest Zone High 2": [],
-        "ETH": [],
-        "BTC": []
+        "Base Amount": [],
+        "Quote Amount": []
     }
-    strategy_usd = []
-    hodl_usd = []
+    strategy_usd: list[float] = []
+    hodl_usd: list[float] = []
 
-    # основной цикл
+    # Основной цикл симуляции
     for i in range(1, len(prices)):
-        status, progress = strategy.simulate_step(prices[i], prices[i - 1])
+        status, progress = strategy.simulate_step(prices[i], prices[i-1], step=i)
 
-        # стоимость стратегии и HODL в USD
-        V_strategy = strategy.eth * eth_prices[i] + strategy.btc * btc_prices[i]
-        V_hodl     = initial_eth * eth_prices[i]  + initial_btc * btc_prices[i]
+        # USD-стоимость стратегии и HODL
+        V_strategy = strategy.base_amount * base_prices[i] + strategy.quote_amount * quote_prices[i]
+        V_hodl     = initial_base * base_prices[i]  + initial_quote * quote_prices[i]
 
         strategy_usd.append(V_strategy)
         hodl_usd.append(V_hodl)
 
-        # записываем базовые величины
+        # Сохранение данных
         collected["Time"].append(i)
         collected["Price"].append(prices[i])
-        collected["ETH"].append(strategy.eth)
-        collected["BTC"].append(strategy.btc)
 
-        # первичный диапазон + зона покоя 1
-        if len(strategy.ranges) >= 1:
-            pr = strategy.ranges[0]
-            rest1_low, rest1_high = strategy.compute_rest_zone(pr["center"])
-            collected["Primary Range Low"].append(pr["low"])
-            collected["Primary Range High"].append(pr["high"])
-            collected["Rest Zone Low 1"].append(rest1_low)
-            collected["Rest Zone High 1"].append(rest1_high)
-        else:
-            for key in ["Primary Range Low","Primary Range High",
-                        "Rest Zone Low 1","Rest Zone High 1"]:
-                collected[key].append(None)
+        # Первичный диапазон и зона покоя 1
+        pr = strategy.ranges[0]
+        collected["Primary Range Low"].append(pr["low"])
+        collected["Primary Range High"].append(pr["high"])
+        r1_low, r1_high = strategy.compute_rest_zone(pr["center"])
+        collected["Rest Zone Low 1"].append(r1_low)
+        collected["Rest Zone High 1"].append(r1_high)
 
-        # вторичный диапазон + зона покоя 2
+        # Вторичный диапазон и зона покоя 2
         if len(strategy.ranges) >= 2:
             sr = strategy.ranges[1]
-            rest2_low, rest2_high = strategy.compute_rest_zone(sr["center"])
             collected["Secondary Range Low"].append(sr["low"])
             collected["Secondary Range High"].append(sr["high"])
-            collected["Rest Zone Low 2"].append(rest2_low)
-            collected["Rest Zone High 2"].append(rest2_high)
+            r2_low, r2_high = strategy.compute_rest_zone(sr["center"])
+            collected["Rest Zone Low 2"].append(r2_low)
+            collected["Rest Zone High 2"].append(r2_high)
         else:
-            for key in ["Secondary Range Low","Secondary Range High",
-                        "Rest Zone Low 2","Rest Zone High 2"]:
-                collected[key].append(None)
+            collected["Secondary Range Low"].append(None)
+            collected["Secondary Range High"].append(None)
+            collected["Rest Zone Low 2"].append(None)
+            collected["Rest Zone High 2"].append(None)
+
+        # Балансы активов
+        collected["Base Amount"].append(strategy.base_amount)
+        collected["Quote Amount"].append(strategy.quote_amount)
 
     return collected, strategy, strategy_usd, hodl_usd
