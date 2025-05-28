@@ -579,8 +579,8 @@ def main():
             for eps in eps_vals:
                 for a in alpha_vals:
                     for lam in lambda_vals:
-                        strat_s = UniswapV4Strategy(eps, range_ticks, a, lam, initial_eth, initial_btc)
-                        _, _, strat_usd_s, _ = run_simulation(prices_ratio, base_prices, quote_prices, strat_s, initial_eth, initial_btc)
+                        strat_s = UniswapV4Strategy(eps, range_ticks, a, lam, initial_eth, initial_quote)
+                        _, _, strat_usd_s, _ = run_simulation(prices_ratio, base_prices, quote_prices, strat_s, initial_eth, initial_quote)
                         rets = np.diff(strat_usd_s) / strat_usd_s[:-1]
                         sharpe = np.mean(rets) / np.std(rets) * np.sqrt(252) # TODO: check how to right calculate sharpe ratio
                         results.append({'epsilon': eps, 'alpha': a, 'lambda': lam, 'sharpe': sharpe})
